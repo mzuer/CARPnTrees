@@ -322,6 +322,10 @@ for i in haploTreeUltra.internal_nodes():
     i.taxon = None
     i.edge_length  = None
 
+# save without distance
+a = haploTreeUltra.as_string(schema="newick")
+a = re.sub("\:0\.0", "", a)
+a = re.sub("\:0", "", a)
 orig_stdout = sys.stdout
 f = open('ConsensusTreeWithoutNodLab_py.newick', 'w')
 sys.stdout = f
