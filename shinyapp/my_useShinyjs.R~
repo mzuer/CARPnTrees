@@ -1,0 +1,23 @@
+my_useShinyjs<-
+function (rmd = FALSE, debug = FALSE, html = FALSE) 
+{
+    stopifnot(rmd == TRUE || rmd == FALSE)
+    stopifnot(debug == TRUE || debug == FALSE)
+    stopifnot(html == TRUE || html == FALSE)
+    .globals$astext <- rmd || html
+    .globals$inject <- html
+    jsFuncs <- c("show", "hide", "toggle", "enable", "disable", 
+        "toggleState", "addClass", "removeClass", "toggleClass", 
+        "text", "onevent", "info", "logjs", "runjs", "reset", 
+        "delay")
+    shiny::addResourcePath("shinyjs", system.file("srcjs", package = "shinyjs"))
+    jsFile <- file.path("shinyjs", "shinyjs-default-funcs.js")
+    if (debug) {
+        initJS <- "shinyjs.debug = true;"
+    }
+    else {
+        initJS <- "shinyjs.debug = false;"
+    }
+    initCSS <- inlineCSS(".shinyjs-hide { display: none; }")
+    setupJS(jsFuncs, jsFile, initJS, initCSS)
+}

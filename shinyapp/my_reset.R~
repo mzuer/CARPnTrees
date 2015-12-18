@@ -1,0 +1,54 @@
+reset<-
+
+function (id) 
+{
+    print("hello")
+getSession <- function() {
+  session <- shiny::getDefaultReactiveDomain()
+  if (is.null(session)) {
+    errMsg(paste(
+      "could not find the Shiny session object. This usually happens when a",
+      "shinyjs function is called from a context that wasn't set up by a Shiny session."
+    ))
+  }
+  session
+}
+
+    session <- getSession()
+    shinyInputId <- paste0("shinyjs-resettable-", id)
+    session$sendCustomMessage("reset", list(id = id, shinyInputId = shinyInputId))
+    shiny::observeEvent(session$input[[shinyInputId]], {
+        messages <- session$input[[shinyInputId]]
+        lapply(names(messages), function(x) {
+            type <- messages[[x]][["type"]]
+            value <- messages[[x]][["value"]]
+            updateFunc <- sprintf("update%sInput", type)
+            funcParams <- list(session, x)
+            if (type == "Checkbox") {
+                value <- as.logical(value)
+            }
+            if (type == "CheckboxGroup" || type == "RadioButtons" || 
+                type == "Select") {
+                funcParams[["selected"]] <- unlist(strsplit(value, 
+                  ","))
+            }
+            else if (type == "Slider") {
+                value <- unlist(strsplit(value, ","))
+                funcParams[["value"]] <- value
+            }
+            else if (type == "DateRange") {
+                dates <- unlist(strsplit(value, ","))
+                funcParams[["start"]] <- dates[1]
+                funcParams[["end"]] <- dates[2]
+            }
+            else {
+                funcParams[["value"]] <- value
+            }
+            if (type == "RadioButtons") {
+                updateFunc <- sprintf("update%s", type)
+            }
+            do.call(updateFunc, funcParams)
+        })
+    })
+    invisible(NULL)
+}

@@ -1,0 +1,181 @@
+##### CARP PROGRAM #####
+# with main function to launch the program with one function
+########################
+
+CARP_main_consensus <- function(polyFile, haploFile=NA, analysis="str", allHaploTreeName, 
+                                headP=NA, sepP=NA, headH, sepH){
+  
+    source("CARPfcts.R")   # load functions used in this script
+    source("CARPcls.R")
+    wd=""
+    verb=F
+    if(is.na(haploFile)){
+        haploFile <- polyFile
+    }
+    haploCol = 1
+
+    loadPck("ape", verb)
+    loadPck("seqinr", verb)
+
+##### Set parameters (from command line or from provided R file)
+
+
+##### Load the recent polymorphisms data
+# Y-STR : matrix with individuals ID in row names, each column = locus
+# seq : fasta
+    polyData <- try(loadData(haploFile, polyFile, analysis, verb, sepP=sepP, hdrP=headP))
+    
+    if(class(polyData)=="try-error"){
+        stop("problem during data loading.")
+    }
+
+
+##### Subset from the whole haplogroups tree only the part with the haplogroups present in the dataset
+
+    allHaploTree <- read.tree(paste0(wd,allHaploTreeName)) # load the tree with all HG
+    haploTree <- allHaploTree
+# Haplogroups present in the dataset
+    haploData <- read.table(paste0(wd, haploFile), sep=sepH, header=headH, row.names=1)
+    haplo <- unique(haploData[,haploCol])
+
+# Nodes that contain individuals should be shifted as tips
+    nodeLab <- haploTree$node.label[haploTree$node.label %in% haplo]
+    for(i in nodeLab){
+        tip <- list(edge=matrix(c(2,1),1,2), tip.label=i, edge.length=1.0, Nnode=1)
+        class(tip) <- "phylo"
+        haploTree$node.label[haploTree$node.label==i] <- "temp"
+        haploTree <- bind.tree(haploTree, tip, where=findPos("temp", haploTree))
+        haploTree$node.label[haploTree$node.label=="temp"] <- ""
+    }
+
+##### Select from the tree only the branches with the haplogroups of the data
+# Tips of the big tree that are not present in the dataset, remove it
+            # Not remove internal nodes because they could contain individuals
+            # Repeat until all tips contain individuals
+    allTips <- haploTree$tip.label
+    tipsToRemove <- setdiff(allTips, haplo)
+
+    haploTree <- drop.tip(haploTree, tipsToRemove, trim.internal = T)
+
+
+##### Add individuals ID at the tips and nodes of the tree
+# work on a copy of haploTree
+    haploTreeID <- haploTree
+
+    addID <- function(HG){   
+  # Small function that takes the haplogroup name in argument and returns a string
+  # with the collapsed ID of the individuals that belong to this haplogroup
+        ID <- paste0(rownames(haploData)[which(haploData[,haploCol]==HG)], collapse="\n")
+        return(ID)
+    }
+
+# Add ID to the tips
+    tipsHG <- haploTreeID$tip.label     # tips with individuals from the dataset
+    tipsID <- sapply(tipsHG, FUN=addID)
+
+
+    haploTreeID$tip.label <- mixedFontLabel(tipsHG, tipsID, bold = 1, italic = 2, sep=" ")
+
+
+    
+    i=haplo[1]
+
+# For each level of haplo, plot the tree of recent polymorphisms and append the HG tree
+    for(i in haplo){
+ 
+  # set the outgroup (to root the nj tree), for the 1st, taken in the following haplogroup (for the other: at the end)
+        if(i==haplo[1]){
+            nextSample <- row.names(subset(haploData, haploData[,haploCol]==haplo[2])) 
+            n <- sample(1:length(nextSample), 1)
+            outID <- nextSample[n]
+        }
+  
+  # Samples ID sharing the same haplogroup
+        samplesID <- row.names(subset(haploData, haploData[,haploCol]==i))  
+
+        if (length(samplesID)==1){
+
+            tip <- list(edge=matrix(c(2,1),1,2), tip.label=samplesID, edge.length=1.0, Nnode=1)
+            class(tip) <- "phylo"
+            haploTree <- bind.tree(haploTree, tip, where=findPos(i, haploTree))
+            haploTree$tip.label[haploTree$tip.label==samplesID] <- paste0(samplesID)  # id of the individual at the tip only
+            outID <- samplesID[1]    # set the outgroup for following iteration
+        } else if (length(samplesID)==2){
+
+            i1 <- samplesID[1]
+            i2 <- samplesID[2]
+            temp <- read.tree(text=paste0("(", i1, ",", i2, ");"))
+            haploTree <- bind.tree(haploTree, temp, where=findPos(i, haploTree))
+                                        # set randomly the outgroup (to root the nj tree) for the following iteration
+            n <- sample(1:2, 1)
+            outID <- samplesID[n]
+        }else if(length(samplesID)>2){
+            samplesID <- append(samplesID, outID)
+            # Subset from the polymorphisms file 
+            subPoly <- subsetPolyfile(samplesID, polyData)
+    # Distance matrix and building the tree for this subset
+            subTree <- buildTree(calcDistance(subPoly, polyData@type,verb), samplesID, verb)  
+			# this is the tree to add at the tip of this haplogroup  
+            
+    # subTree <- root(subTree, outgroup=outID, resolve.root = T)  ???
+            subTree <- root(subTree, outgroup=outID, resolve.root = F)    #???
+    # root the tree (mandatory if the outID belongs to another clade)
+            subTree <- drop.tip(subTree, outID)
+    
+    # Add the small tree to the tip of the big tree
+            haploTree <- bind.tree(haploTree, subTree, where=findPos(i, haploTree))
+    
+    # set randomly the outgroup (to root the nj tree) for the following iteration
+    # not take the last one because it is the outgroup
+            n <- sample(1:(length(samplesID)-1), 1)
+            outID <- samplesID[n]
+        }
+  # for samplesID>1 -> NA is created where the trees are merged
+        haploTree$node.label[which(is.na(haploTree$node.label))] <- i
+    }
+  
+  # Save the consensus tree
+                        #   if(verb){
+                        #     cat("\n... Saving consensus tree ...\n")
+                        #   }
+  nL <- haploTree$node.label
+  
+  rmDupli <- function(i){          #in order that the same label does not appear on many nodes
+    if(nL[i] %in% nL[1:(i-1)]){
+      nL[i] <- ""
+    } else{
+      nL[i] <- nL[i]
+    }
+    return(nL[i])
+  }
+  haploTree$node.label[2:length(nL)] <- unlist(lapply(c(2:length(nL)), rmDupli))
+  
+  tempTree <- haploTree
+  rmFont <- function(x){                # if only 1 individual has an HG, must be changed for tre output
+    x <- sub(".+\"(.+)\"\\).+\"(.+)\"\\)$", "\\1: \\2",x)  # in this case, in the tre output as : "HG: ID"
+    return (x)
+  }
+  tempTree$tip.label <- sapply(as.character(tempTree$tip.label), rmFont)
+  
+  haploTree$node.label <- mixedFontLabel(haploTree$node.label, bold = 1)
+  
+  removeHG <- function(x){       # remove haplogroup from the tip label (when HG only for 1 individual)
+    if(regexpr('\"', x)>0){
+        x <- gsub('\"', "", x)
+        x <- sub(".*plain\\((.*)\\)$", "\\1", x)
+    }else{
+      x <- x
+    }
+    return(x)
+  }
+
+    haploTree$tip.label <- sapply(as.character(haploTree$tip.label),removeHG)  
+    haploTree$node.label <- sapply(as.character(haploTree$node.label),function(x) "")
+
+    haploTree$edge.length <- rep(0, length(haploTree$edge.length))
+    newickTree <- write.tree(haploTree)
+    newickTree <- gsub(":0", "", newickTree)
+    
+    return(newickTree)
+
+}

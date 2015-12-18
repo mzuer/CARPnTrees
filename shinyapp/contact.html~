@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+  <title> Contact </title>
+
+  <style>
+  p{
+    align:justify
+  }
+
+  </style>
+
+</head>
+
+<body>
+
+<h2> Contact </h2>
+
+<h5> For scientific questions or bug reports: <h5>
+
+<div  style="padding-top: 10px;">
+<table style="width:100%" align="center">
+<tr>
+<td align="center"> <a href="mailto:marie.zufferey.1@unil.ch">Marie Zufferey</a></td>
+<td align="center">Dr. <a href="mailto:elsa.guillot@unil.ch">Elsa Guillot</a> </td>
+<td align="center">Prof. <a href="mailto:marc.robinson-rechavi@unil.ch">Marc Robinson-Rechavi</a></td>
+</tr>
+</table>
+</div>
+<div  style="padding-top: 30px;">
+<p align="justify">
+<a href="http://www.unil.ch/dee/home/menuinst/research/group-robinson-rechavi.html" target="_blank">
+<img src="logo_UNIL2.png" alt="DEE UNIL - Robinson-Rechavi group" width="15%" align="left" style="margin: 0px 20px" valign="bottom"></a>
+<h4 style="margin-bottom: -0px; margin-top:-9px;">University of Lausanne</h4>
+Faculty of Biology and Medicine<br>
+Department of Ecology and Evolution<br>
+Evolutionary Bioinformatics Group<br>
+</p>
+
+</div>
+</body>
+</html>

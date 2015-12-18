@@ -1,0 +1,31 @@
+##########################################################
+# In this script you can change some default parameters  #
+##########################################################
+
+#************
+# General parameters
+#************
+
+# Which column contains haplogroup information
+haploCol <- 1  	                # [integer] column that contains HG (numbering not include row names)
+
+# Separator used in the input files (if only one input file, set the same for both)
+sepP <- ","                     # [char] Separator used in the recent polymorphism file
+sepH <- ","                     # [char] Separator used in the haplogroups file
+
+# Header in the files ? (if only one input file, set the same for both)
+hdrP <- TRUE                    # [logical] Has the file with recent polymorphism data an header ?
+hdrH <- TRUE                    # [logial] Has the file with haplogroups data an header ?
+
+# Format of the output
+treePlotFormat <- "png"         # [char] Format of the tree plot: png or svg
+treeFormat <- "Newick"          # [char] Format of the tree: Newick or NEXUS
+
+# Name of the outputed tree
+polyPlotname <- "TreePlot"	# [char] The name of your choice (used for saving picture of the tree)
+polyTreename <- "TreeTxt"	# [char] The name of your choice (used for saving textual representation of the tree)
+
+
+inFormatPoly <- "fasta"
+
+wd <- ""

@@ -1,0 +1,367 @@
+########################################################################
+########## Script containing functions used in CARP programm ###########
+# Marie Zufferey - UNIL - December 2015 ################################
+# License: Open Source AGPL v3 #########################################
+########################################################################
+
+#!!!!!!!!!!!!!!!!!!!!! Do not rename this file !!!!!!!!!!!!!!!!!!!!!!# 
+
+# Load the class definition for the polyData object
+source("CARPcls.R")
+
+#---------------------------------------------------------------------------------------#
+#---------------------------------------------------------------------------------------#
+#--------------------------- Setting parameters and load data --------------------------#
+#---------------------------------------------------------------------------------------#
+#---------------------------------------------------------------------------------------#
+
+#' @title Load the needed packages
+#' @description Function to load and if needed install required packages for these scripts.
+#' @usage loadPck (package_name, )
+#' @param pck String: the package name.
+#' @param verb Logical: verbose function or not (default: FALSE).
+#' @example loadPck("ape")
+#' @export
+loadPck <- function(pck, verb=FALSE){
+  if(require(pck, character.only=TRUE, quietly=T, warn.conflicts=F)){
+    if(verb){
+      cat(paste0(pck, " package correctly loaded.\n"))
+    }
+  }else{
+    install.packages(pck, verbose=F, repos="http://cran.us.r-project.org")
+    if(require(pck, character.only=TRUE, quietly=F, warn.conflict=F)){
+      if(verb){
+        cat(paste0(pck, " package correctly installed and loaded.\n"))
+      }
+    } else{
+      stop(paste0("\nproblem with installation of ", pck, " package.\n"))
+    }
+  }
+}
+
+#' @title Retrieve command line option
+#' @description Function to retrieve the values of the options passed in the command line.
+#' @usage getOpt()
+#' @return A vector containing the value of -f, -P and -H flags retrieved from command line.
+getOpt <- function(){
+  option_list = list(
+    make_option(c("-f", "--format"), action="store", default="str", type='character',
+                help="type of polymorphism input (str or seq)"),
+    make_option(c("-P", "--Poly"), action="store", default=NA, type='character',
+                help="complete name of the polymorphism file (relative path from current directory)"),
+    make_option(c("-H", "--Haplo"), action="store", default=NA, type='character',
+                help="complete name of the haplogroup file (relative path from current directory)"),
+    make_option(c("-v", "--verbose"), action="store_true", default=FALSE, type='character',
+                help="if omitted, nothing will be printed in the terminal"),
+    make_option(c("-T", "--Tree"), action="store", default=NA, type='character',
+                help="file containing the haplogroups tree or indicate if paternal or maternal analysis")
+  )
+  
+  opt = parse_args(OptionParser(option_list=option_list))
+  
+  if(is.na(opt$T)){
+    stop("missing \"-T\" argument. You need to indicate which haplogroups tree must be used.\n  Read \"readme.txt\" could help.")
+  }
+  else if(opt$T == "m"){
+    opt$T <- "allHaploTreeM.newick"
+  }else if(opt$T == "p"){
+    opt$T <- "allHaploTreeP.newick"
+  }else if (!regexpr("\\.newick$", opt$T, perl=T) > 0){
+    stop("invalid \"-T\" argument.\n  Read \"readme.txt\" could help.")
+  }
+  
+  if (opt$f != "str" & opt$f != "seq") {
+    stop("invalid option after \"-f\" or \"--format\"flag.\n  Read \"readme.txt\" could help.")
+  } 
+  
+  if (is.na(opt$P)){
+    stop("argument of the mandatory option \"-P\" or \"--Poly\" is missing.\nRead \"readme.txt\" could help.")
+  }
+  
+  if (is.na(opt$H)){
+    opt$H <- opt$P    # If not provided, poly and HG in the same file
+  }   
+  values <- c(opt$f, opt$P, opt$H, opt$v, opt$T)
+  return (values)
+}
+
+#' @title Loading the data
+#' @description Function to load the data correctly, depending on the file type and the columns/rows to take.
+#' @usage loadData("haplogroup.csv", "seq.fasta", "seq", verb=TRUE)
+#' @param haploFile String: name of the file containing haplogroups data.
+#' @param polyFile String: name of the file containing recent polymorphism data.
+#' @param analysis String: "seq" or "str" (if the analysis is performed for sequence or STR data).
+#' @param verb Logical: verbose function or not (default: FALSE).
+#' @return A polyData object representing the data.
+#' @export
+loadData <- function(haploFile, polyFile, analysis, verb=FALSE){
+  if(verb){
+    cat("... Loading data ...\n")
+  }
+  if(analysis=="str"){
+    ## Load the data 
+    polyRaw <- try(read.table(paste0(wd,polyFile), sep=sepP, header=hdrP, row.names=1))
+    if(class(polyRaw)!="try-error"){
+      if(verb){
+        cat("Data correctly loaded.\n")
+      }
+    } else{
+      stop("problem with data loading.\n")
+    }
+    if(polyFile==haploFile){          # if polymorphism and haplogroups data in the same file, remove column with haplogroups
+      polyRaw <- polyRaw[,-haploCol]
+    }
+    polyData <- new("strData", data=polyRaw, labels=rownames(polyRaw), markers = colnames(polyRaw), type=analysis)
+    
+    # Ensure you have only numeric data 
+    polyData@data <- data.frame(sapply(polyData@data, function(x) as.numeric(as.character(x))))
+    rownames(polyData@data) <- polyData@labels
+    # Remove eventual na
+    polyData@data <- na.omit(polyData@data)
+
+  }else if(analysis=="seq"){
+    polyRaw <- try(read.alignment(paste0(wd, polyFile), format = inFormatPoly))
+    if(class(polyRaw)!="try-error"){
+      if(verb){
+        cat("Data correctly loaded.\n")
+      }
+    } else{
+      stop("problem with data loading.\n")
+    }
+    polyData <- new("seqData", data=polyRaw, labels=polyRaw$nam,  type=analysis)
+  }
+  return (polyData)    
+}
+
+#---------------------------------------------------------------------------------------#
+#---------------------------------------------------------------------------------------#
+#------------------------------- Compute distance matrix -------------------------------#
+#---------------------------------------------------------------------------------------#
+#---------------------------------------------------------------------------------------#
+#' @title Bruvo function for genetic data from haploid organisms
+#' @description Function that calculates the bruvo distance for STR microsatellites data.
+#' @usage distM <- bruvoD(mySTR)   # where mySTR is a data frame with microsatellites data
+#' @param msData Data frame: microsatellite data that should contain only the number of repeats (no additional row or column names).
+#' @return The distance matrix for Y-STR data.
+#' @export
+
+bruvoD <- function(msData){
+  dist <- function(x){
+    i1 <-x[1]  # i1 and i2 = 2 individuals between which we want the distance
+    i2 <- x[2]
+    distL <- function(y){   #x ici c'est la colonne du tableau microsat
+      #     abs(unlist(y[i1])-unlist(y[i2]))/y["nts"]
+      rep <- abs(unlist(y[i1])-unlist(y[i2]))/unlist(y["nts"])
+      dA <- 1-2^(-rep)
+      return (dA)
+    }
+    m <- apply(msData, 2, distL)
+    D <- mean(m)
+    return (D)
+  }
+  distM <- diag(nrow(msData)-1)
+  distM[lower.tri(distM,diag=F)]<- apply(combn(nrow(msData)-1,2), 2, dist)
+  distM[upper.tri(distM,diag=F)] <- t(distM)[upper.tri(distM,diag=F)] 
+  # combn -> 2-rows array, each column gives a combination (e.g. for n=3 1,2 1,3 2,3)
+  # in "dist" we use col by col this combination -> combination of individuals for which we want the dist
+  # in "distL" we take the microsatellite data col by col (i.e. locus by locus)
+  # the numbers given by the combinations give the row (i.e. the individual)
+  # for each col (i.e. locus) we compute the distance between both allels
+  # for STR, ploidy = 1, no need to compute minimal sum of combination of locus
+  # for each pair, we have then the distance for each locus that we should divide
+  # by the number of locus (i.e. take the mean)
+  diag(distM) <- 0
+  return(distM)
+}
+
+#' @title Number of nucleotides of the repeat unit
+#' @description Function that takes the name of the marker in argument and returns the number of nucleotides of the repeat unit (1 if not known).
+#' @usage n <- ntsMarker("DYS19")
+#' @param marker String: the name of the marker for which we want the number of nucleotides.
+#' @return Integer: the number of nucleotides of the repeat (1 if not known)
+
+ntsMarker <- function(marker){
+  markersData <- read.csv("markersYSTR.csv", sep=",")   #marker, nts (#nts by STR -> needed for Bruvo dist.)
+  marker <- sub("[^A-Z0-9]+.?$","", marker)
+  if(marker %in% markersData$marker){
+    return(as.integer(markersData$nts[markersData$marker==marker]))
+  }else{
+    return (1)
+  }
+}
+
+#' @title Compute distance matrix
+#' @description Function that returns the distance matrix for a certain dataset.
+#' @usage distM <- calcDistance(data, "seq")
+#' @param polyData The dataset from which to compute distance matrix (default: the data stored in the polyData object).
+#' @param analysis String: the kind of analysis (str or seq) (default: the value stored in the polyData object).
+#' @param verb Logical: verbose function or not (default: FALSE).
+#' @return The distance matrix.
+#' @export
+calcDistance <- function(data=polyData@data, type=polyData@type, verb=FALSE){   
+  # not possible to use polyData object in argument because use after for building consensus tree
+  if(type=="str"){
+    # add a line with the length of nts of the STR
+    data <- rbind(data, sapply(colnames(data), ntsMarker))   
+    rownames(data)[length(rownames(data))] <- "nts"           # rename this line
+    distM <- bruvoD(data)
+  }else if(type=="seq"){
+    distM <- try(dist.dna(as.DNAbin(data), model="K80"))
+  } else{
+    stop("\"analysis\" argument not correct.")
+  }
+  
+  if(class(distM)!="try-error"){
+    if(verb){
+      cat("Distance matrix computed with success.")
+    }
+  }else{
+    stop("problem during distance matrix computation.")
+  }
+  return(distM)
+}
+
+#---------------------------------------------------------------------------------------#
+#---------------------------------------------------------------------------------------#
+#----------------------------- Build the tree (NJ on distM) ----------------------------#
+#---------------------------------------------------------------------------------------#
+#---------------------------------------------------------------------------------------#
+
+#' @title Building the tree from distance matrix
+#' @description Function that returns the tree built from a distance matrix
+#' @usage myTree <- buildTree(distM, labels=my.labels)
+#' @param distM The distance matrix to build the tree upon.
+#' @param labels List of labels (in the order of the rows/columns) (default: values stored in the polyData object).
+#' @param verb Logical: verbose function or not (default: FALSE).
+#' @return The tree built on the distance matrix (an object of class "phylo").
+#' @export
+buildTree <- function(distM, labels = polyData@labels, verb=FALSE){
+  #Run NJ on the distance matrix 
+  polyTree <- try(nj(distM))       # returns an object of class phylo
+  if(class(polyTree)!="try-error"){
+    if(verb){
+      cat("\nNeighbour-joining algorithm successfully applied, tree is built.\n\n")
+    }
+  } else{
+    stop("problem during tree construction.")
+  } 
+  # Change tip labels 
+  polyTree$tip.label <- labels
+  return(polyTree)
+}
+
+#---------------------------------------------------------------------------------------#
+#---------------------------------------------------------------------------------------#
+#------------------------------------- Save output -------------------------------------#
+#---------------------------------------------------------------------------------------#
+#---------------------------------------------------------------------------------------#
+
+#' @title Save picture of  the tree
+#' @description Function to save the output in a file (picture) [format: "png" or "svg", defined in setParam.R].
+#' @usage saveTreePlot(my.tree)
+#' @param tree The tree to save(an object of class "phylo").
+#' @param aux String to append after the name of the file.
+#' @param verb Logical: verbose function or not (default: FALSE).
+#' @export
+saveTreePlot <- function(tree, aux="", verb=FALSE){
+  # Plot the tree
+  if(treePlotFormat=="png"){
+    try_plot <- try(png(paste0(polyPlotname, aux, ".", treePlotFormat)))
+  }else if(treePlotFormat=="svg"){
+    try_plot <- try(svg(paste0(polyPlotname, aux, ".", treePlotFormat)))
+  }  
+  if(regexpr("without_lab", aux)>0 & class(try_plot)!="try-error"){
+    plot(tree, cex=0.6)
+    if(verb){
+      cat(paste0("Plot of the tree saved in: \"", wd, polyPlotname, aux, ".", treePlotFormat,"\"\n"))
+    }
+  }else if(class(try_plot)!="try-error"){
+    plot(tree, cex=0.6);nodelabels(tree$node.label, cex=0.6, frame="none")
+    if(verb){
+      cat(paste0("Plot of the tree saved in: \"", wd, polyPlotname, aux, ".", treePlotFormat,"\"\n"))
+    }
+  }
+  foo <- dev.off()
+}
+
+#' @title Save text representation of  the tree
+#' @description Function to save the output in a file (text) [format: "nexus" or "newick", defined in setParam.R].
+#' @usage saveTreeTxt(my.tree)
+#' @param tree The tree to save(an object of class "phylo").
+#' @param aux String to append after the name of the file.
+#' @param verb Logical: verbose function or not (default: FALSE).
+#' @export
+saveTreeTxt <- function(tree, aux="", verb=FALSE){
+   # Export the tree in newick or NEXUS format
+  if(treeFormat=="Newick"){
+    # try_tree <- try(write.tree(tree, file=paste0(polyTreename, aux, ".newick"))) # -> save with distances
+    # rewritten in order to have Newick format without distances
+    filename = paste0(polyTreename, aux, ".newick")
+    tree$edge.length <- rep(0, length(tree$edge.length))
+    newickTree <- write.tree(tree)
+    newickTree <- gsub(":0", "", newickTree)
+    try_tree <- (writeLines(newickTree, filename))
+  }else if(treeFormat=="NEXUS"){
+    try_tree <- try(write.nexus(tree, file=paste0(polyTreename, aux, ".nex")))
+  }  
+  if(class(try_tree)!="try-error"){
+    format <- ifelse(treeFormat=="Newick", ".newick", ".nex")
+    if(verb){
+      cat(paste0(treeFormat, " tree representation saved in: \"", wd, polyTreename, aux, format,"\"\n"))
+    }
+  }
+}
+
+#---------------------------------------------------------------------------------------#
+#---------------------------------------------------------------------------------------#
+#------------------------------- Subset polymorphism data ------------------------------#
+#---------------------------------------------------------------------------------------#
+#---------------------------------------------------------------------------------------#
+
+#' @title Subset from polymorphism data
+#' @description Function that retrieves from the polymorphism data, the subset containing only the data for the individuals passed in argument.
+#' @usage subData <- subsetPolyFile(c("TK32", "TI18", "TR20"), polyData))
+#' @param individuals A vector with samples ID for which subsetting polymorphism data.
+#' @param data A polyData object.
+#' @return The subset of the data (data frame if polyData@type=="str" or object of alignment {seqinr} if polyData@type=="seq").
+
+subsetPolyfile <- function(individuals, data=polyData){
+  if(data@type=="str"){
+    subPoly <- data@data[row.names(data@data) %in% individuals,]
+  }else if(data@type=="seq"){
+    pos <- match(individuals, data@data$nam)
+    subPoly <- seqinr::as.alignment(nb=length(pos), nam=data@data$nam[pos], 
+                                    seq=data@data$seq[pos]) # {ape} same func name    
+  }else{
+    stop("\"analysis\" argument not correct.")
+  }
+  return(subPoly)
+  
+}
+
+
+#---------------------------------------------------------------------------------------#
+#---------------------------------------------------------------------------------------#
+#--------------------------------- Build consensus tree --------------------------------#
+#---------------------------------------------------------------------------------------#
+#---------------------------------------------------------------------------------------#
+
+#' @title Find position in the tree
+#' @description Function that returns the position of the label in the tree.
+#' @usage my.pos <- findPos("TK32", polyTree)
+#' @param x String: the label for which we want the position.
+#' @param tree The tree (object of class "phylo") bearing the individual whose position is searched.
+#' @return The position (integer) of the x in tree.
+findPos <- function(x, tree){
+  # Find the position of x in the tree
+  if(x %in% tree$tip.label){
+    # need to find the position of the haplogroup
+    pos <- match(x, tree$tip.label)
+  }else if(x %in% tree$node.label){
+    # vect. nodes = [(ntips+1):(ntips+nnode)]
+    pos <- ((length(tree$tip.label)+1):(length(tree$tip.label)+tree$Nnode))[match(x, tree$node.label)]
+  }else{
+    stop(paste0("fail to find the position of ", x, ".  Verify that the tree contains it."))
+  }
+  return (pos)
+}

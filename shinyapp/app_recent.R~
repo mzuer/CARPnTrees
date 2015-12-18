@@ -1,0 +1,45 @@
+##### CARP PROGRAM #####
+# with main function to launch the program with one function
+########################
+
+CARP_main_recent <- function(polyFile, haploFile=NA, analysis="str",  headP=NA, sepP=NA){
+    source("CARPfcts.R")   # load functions used in this script
+    source("CARPcls.R")
+    wd=""
+    verb=F
+    if(is.na(haploFile)){
+        haploFile <- polyFile
+    }
+
+# ##### Load the needed packages and functions defined elsewhere
+
+    loadPck("ape", verb)
+    loadPck("seqinr", verb)
+
+##### Set parameters (from command line or from provided R file)
+
+    inFormatPoly <- sub(".+\\.([a-z]+)$", "\\1", polyFile) # input format = extension of the input file  
+    inFormatHaplo <- sub(".+\\.([a-z]+)$", "\\1", haploFile) # input format = extension of the input file  
+
+
+##### Load the recent polymorphisms data
+# Y-STR : matrix with individuals ID in row names, each column = locus
+# seq : fasta
+    polyData <- try(loadData(haploFile, polyFile, analysis, verb, sepP=sepP, hdrP=headP))
+    
+    if(class(polyData)=="try-error"){
+        stop("problem during data loading.")
+    }
+
+##### Compute distance matrix
+    distM <- calcDistance(polyData@data, polyData@type, verb)
+
+##### Build and save the tree
+    polyTree <- buildTree(distM, polyData@labels, verb)
+    polyTree$edge.length <- rep(0, length(polyTree$edge.length))
+    newickTree <- write.tree(polyTree)
+    newickTree <- gsub(":0", "", newickTree)
+    
+    return(newickTree)
+  
+}
